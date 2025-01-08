@@ -1,0 +1,20 @@
+definition_version: '2'
+entities:
+  CHATVBT:
+    identifier:
+      name: CHATVBT
+    type: streamlit
+    query_warehouse: cortex_analyst_wh
+    main_file: Home.py
+    pages_dir: pages
+    stage: RAW_DATA
+    artifacts:
+    - Home.py
+    - environment.yml
+    - apps/base_analyst_app.py
+    - apps/ask1.py
+    # - pages/monitoring.py
+    - pages/Admin.py
+    - common/cconfig.py
+    - common/cvalues.py
+

@@ -1,0 +1,10 @@
+name: sf_env
+channels:
+  - snowflake
+dependencies:
+  - streamlit
+  - snowflake-snowpark-python
+  - snowflake-ml-python
+  - plotly
+  - yaml
+  
