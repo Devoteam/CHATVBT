@@ -316,44 +316,45 @@ class Ask1App:
             # Insérer la conversation
             session.sql("""
             INSERT INTO CORTEX_CONVERSATION_HISTORY 
-            (user_input, assistant_reply, model) 
-            VALUES (?, ?, ?)
+            (user_input, assistant_reply, model,username) 
+            VALUES (?, ?, ?, CURRENT_USER())
             """, [user_input, assistant_reply, model]).collect()
         
         except Exception as e:
             st.error(f"Erreur de sauvegarde dans Snowflake : {e}")
         
-    def generate_response(self,user_input, model):      
+    def generate_response(self, user_input, model):      
         try:
             session = get_active_session()
-        
-            # prompt
-            system_prompt = """
-            You are a specialized AI assistant trained in Streamlit.
-            You are helpful, direct, and focused on providing clear information.
-            Your responses should be concise and informative.
-            """
-        
-            # Combine system prompt with user input
-            full_prompt = f"{system_prompt}\n\nUser: {user_input}\n\nAssistant:"
-        
-            # Generate response using Cortex based on selected model
+            
+            # Construire la conversation directement à partir de l'historique
+            conversation = []
+            if len(st.session_state.conversation_history) > 0:
+                recent_history = st.session_state.conversation_history[-5:]
+                conversation = "\n".join([
+                    f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+                    for msg in recent_history
+                ])
+            
+            # Ajouter la question courante
+            conversation += f"\nUser: {user_input}\nAssistant:"
+            
+            # Générer la réponse avec le modèle approprié
             if model == "mistral-large2":
                 response = session.sql(
                     "SELECT snowflake.cortex.complete('mistral-large2', :1) AS result", 
-                    [full_prompt]
+                    [conversation]
                 ).collect()[0]['RESULT']
                 return response        
             elif model == "llama3.1-70b":
                 response = session.sql(
                     "SELECT snowflake.cortex.complete('llama3.1-70b', :1) AS result", 
-                    [full_prompt]
+                    [conversation]
                 ).collect()[0]['RESULT']
                 return response            
             else:
-                response = "Je suis désolé, je ne comprends pas votre requête."        
-                print(f"Default response: {response}") 
-                return response.strip()  
+                return "Modèle non reconnu."
+        
         except Exception as e:
             st.error(f"Erreur lors de la génération de la réponse : {e}")
             return f"Une erreur est survenue lors du traitement de votre requête : {str(e)}"
@@ -361,31 +362,40 @@ class Ask1App:
     # Fonction qui traite le message/question saisi(e) par l'utilisateur
     # @st.cache_data(show_spinner=False)
     def process_message(self, prompt: str, model: str):
-        if prompt:
-            user_input = prompt.strip().lower()
-            # Ajouter la requête de l'utilisateur à l'historique
-            st.session_state.conversation_history.append({"role": "user", "content": user_input})
-    
-            try:
-                with st.chat_message("assistant"):
-                    # with st.spinner("Generating response..."):
-                        assistant_reply = self.generate_response(user_input, model)
 
-                        st.session_state.conversation_history.append({"role": "assistant", "content": assistant_reply})
-                        st.session_state.history.append({"role": "user", "content": user_input})
-                        st.session_state.history.append({"role": "assistant", "content": assistant_reply})
+        user_input = prompt.strip().lower()
+        # Ajouter la requête de l'utilisateur à l'historique
+        st.session_state.conversation_history.append({"role": "user", "content": user_input})
+        # st.session_state.messages.append(
+        # {"role": "user", "content": [{"type": "text", "text": prompt}]}
+        # )
+        try:
+            with st.chat_message("assistant", avatar="images/Boot.png"):
+                with st.spinner("Generating response..."):
+                    assistant_reply = self.generate_response(user_input, model)
 
-                        # Sauvegarde dans Snowflake
-                        self.save_conversation(user_input, assistant_reply, model)
+                    st.session_state.conversation_history.append({"role": "assistant", "content": assistant_reply})
+                    # st.session_state.messages.append({"role": "assistant", "content": assistant_reply})
+        
+                    # st.session_state.history.append({"role": "user", "content": user_input})
+                    # st.session_state.history.append({"role": "assistant", "content": assistant_reply})
 
-            except Exception as e:
-                logging.error(f"Error occurred: {e}")
-                st.error(f"An error Error: {str(e)}")
+                    # Sauvegarde dans Snowflake
+                    self.save_conversation(user_input, assistant_reply, model)
+        except Exception as e:
+            logging.error(f"Error occurred: {e}")
+            st.error(f"An error Error: {str(e)}")
                 
     def clear_chat_history(self):
-        st.session_state.messages = []
-        st.session_state.history = []
-        st.session_state.conversation_history = []
+        # st.session_state.history = [{
+        # "role": "assistant",
+        # "content": "Comment puis-je vous aider aujourd'hui ?"
+        # }]
+        # st.session_state.history = []
+        st.session_state.conversation_history = [{
+        "role": "assistant",
+        "content": "Comment puis-je vous aider aujourd'hui ?"
+        }]
         st.session_state.prompt_count = 0
     
     def run(self):
@@ -459,10 +469,14 @@ class Ask1App:
         self.load_and_display_image()
         # self.display_key_questions()
         
-        if "history" not in st.session_state:
-            st.session_state.history = []
+        # if "history" not in st.session_state:
+        #     st.session_state.history = []
         if 'conversation_history' not in st.session_state:
             st.session_state.conversation_history = []
+            st.session_state.conversation_history.append({
+            "role": "assistant", 
+            "content": "Comment puis-je vous aider aujourd'hui ?"
+            })
         if "prompt_count" not in st.session_state:
             st.session_state.prompt_count = 0
         
@@ -482,14 +496,14 @@ class Ask1App:
             self.process_message(prompt=user_input,model=model_name) 
             st.session_state.prompt_count += 1    
                 
-        if not st.session_state.history:
-            initial_bot_message = "Comment puis-je vous aider aujourd'hui ?"
-            st.session_state.history.append({"role": "assistant", "content": initial_bot_message})  
+        # if not st.session_state.history:
+        #     initial_bot_message = "Comment puis-je vous aider aujourd'hui ?"
+        #     st.session_state.history.append({"role": "assistant", "content": initial_bot_message})  
         
         if "favorites" not in st.session_state:
             st.session_state["favorites"] = []
         
-        for index, message in enumerate(st.session_state.history[-NUMBER_OF_MESSAGES_TO_DISPLAY:]):
+        for index, message in enumerate(st.session_state.conversation_history[-NUMBER_OF_MESSAGES_TO_DISPLAY:]):
                 role = message["role"]
                 #mettre le logo de l'utilisateur et l'utilisateur
                 avatar_image = "images/Boot.png" if role == "assistant" else "images/You.png" if role == "user" else None
@@ -500,7 +514,7 @@ class Ask1App:
                     if role == "assistant" and st.session_state.prompt_count > 0:
                         previous_message = st.session_state.history[index - 1]
                         if previous_message["role"] == "user":  # Vérifie que le précédent message est une question de l'utilisateur
-                            self.add_feedback_buttons(question=message["content"], lang="FR", message_index=index)
+                            self.add_feedback_buttons(question=message["content"], lang="FR", message_index=len(st.session_state.conversation_history))
         # message_index = message_index or len(st.session_state.messages)
         # for item in content:
         #     if item["type"] == "text":
